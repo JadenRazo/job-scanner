@@ -34,7 +34,7 @@ async function runPass(): Promise<{ scored: number; notified: number; skipped: b
 
   let results;
   try {
-    results = await stage2HaikuBatch(survivors, resume.contentMd);
+    results = await stage2HaikuBatch(survivors, resume.contentMd, profile.targetRoles);
   } catch (err) {
     if (err instanceof QuotaExceededError || err instanceof ClaudeRateLimitError) {
       log.warn({ err: (err as Error).message }, "llm quota/rate limit hit — pass aborted");
