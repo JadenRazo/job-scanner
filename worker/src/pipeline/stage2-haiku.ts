@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { jsonrepair } from "jsonrepair";
 import { runClaude } from "../llm/claude-cli.js";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
@@ -22,7 +23,9 @@ const MatchSchema = z.object({
   // a valid response; the model should still return an id when it can.
   best_resume_id: z.number().int().nullable().default(null),
   score: z.number().int().min(0).max(100),
-  rationale: z.string().min(1).max(400),
+  // Generous cap — the model sometimes writes long rationales when reasoning
+  // across multiple resumes AND the target bias. We truncate for display.
+  rationale: z.string().min(1).max(1200),
   matched: z.array(z.string()).max(5).default([]),
   gaps: z.array(z.string()).max(5).default([]),
 });
@@ -51,10 +54,14 @@ Rules:
   - Location/remote is NOT your concern — assume it's already filtered.
   - If a <target> block is provided, apply its biases ON TOP of the base rubric before emitting the final score.
 
-Output MUST be a single JSON object of the form:
-{"matches":[{"index":1,"best_resume_id":10,"score":85,"rationale":"...","matched":["..."],"gaps":["..."]}, ...]}
+Output format:
+  - Output MUST be a single VALID JSON object wrapped in {"matches":[...]}.
+  - Rationale: plain prose, ≤ 300 characters, NO double quotes, NO newlines, NO backslashes. Use single quotes for code or names.
+  - Do NOT reference rule letters like "(a)" or "(b)" in rationale text — just explain the call directly.
+  - No prose before or after the JSON. No markdown fences. Compact JSON, one line per match if possible.
 
-No prose, no markdown fences, no trailing text. Just the JSON.`;
+Example shape:
+{"matches":[{"index":1,"best_resume_id":10,"score":85,"rationale":"SRE internship at Stripe, direct stack match (Kubernetes, Terraform). Intern resume wins over main CV.","matched":["Kubernetes","Terraform","AWS"],"gaps":["on-call production experience"]}]}`;
 
 function truncateDescription(md: string | null, maxChars = 2400): string {
   if (!md) return "(no description provided)";
@@ -118,13 +125,28 @@ function extractJson(text: string): string {
   return text.slice(open, close + 1);
 }
 
+/**
+ * Parse JSON with a repair fallback for the common model failure modes
+ * (unescaped inner quotes, trailing commas, single quotes, newlines in
+ * strings). jsonrepair is pure JS and deterministic — if it can't fix it,
+ * we throw and the caller records a parse-error row for the batch.
+ */
+function parseJsonTolerant(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const repaired = jsonrepair(text);
+    return JSON.parse(repaired);
+  }
+}
+
 function parseResponse(
   text: string,
   batch: Stage1Row[],
   validResumeIds: Set<number>,
 ): CheapMatchResult[] {
   const json = extractJson(text);
-  const parsed = JSON.parse(json);
+  const parsed = parseJsonTolerant(json);
   const envelope = EnvelopeSchema.parse(parsed);
 
   // Map by (1-based) index → job. Unmatched indices get a default low score

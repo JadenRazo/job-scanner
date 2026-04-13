@@ -16,6 +16,7 @@
     "docx": "^9.1.0",
     "drizzle-orm": "^0.38.3",
     "ioredis": "^5.4.2",
+    "jsonrepair": "^3.13.3",
     "pg": "^8.13.1",
     "pino": "^9.5.0",
     "playwright-core": "^1.49.1",
