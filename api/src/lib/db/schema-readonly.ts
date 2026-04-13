@@ -196,6 +196,10 @@ export const jobMatches = pgTable(
     }),
     tailoredResumeMd: text("tailored_resume_md"),
     tailoredLetterMd: text("tailored_letter_md"),
+    tailoredResumeDocx: bytea("tailored_resume_docx"),
+    tailoredResumePdf: bytea("tailored_resume_pdf"),
+    tailoredLetterDocx: bytea("tailored_letter_docx"),
+    tailoredLetterPdf: bytea("tailored_letter_pdf"),
     tailorStatus: text("tailor_status").notNull().default("idle"),
     tailorError: text("tailor_error"),
     tailorUpdatedAt: timestamp("tailor_updated_at", {

@@ -200,6 +200,10 @@ export interface JobArtifacts {
   tailorUpdatedAt: string | null;
   tailoredResumeMd: string | null;
   tailoredLetterMd: string | null;
+  hasResumeDocx: boolean;
+  hasResumePdf: boolean;
+  hasLetterDocx: boolean;
+  hasLetterPdf: boolean;
 }
 
 function coerceStatus(v: string | null | undefined): ArtifactStatus {
@@ -213,6 +217,8 @@ export async function getJobArtifacts(
   matchId: number,
 ): Promise<JobArtifacts | null> {
   const db = getDb();
+  // Use raw SQL for the binary presence booleans so we never pull the
+  // bytea bytes into the list response.
   const [row] = await db
     .select({
       matchId: jobMatches.id,
@@ -225,6 +231,10 @@ export async function getJobArtifacts(
       tailorUpdatedAt: jobMatches.tailorUpdatedAt,
       tailoredResumeMd: jobMatches.tailoredResumeMd,
       tailoredLetterMd: jobMatches.tailoredLetterMd,
+      hasResumeDocx: sql<boolean>`(${jobMatches.tailoredResumeDocx} IS NOT NULL)`.mapWith(Boolean),
+      hasResumePdf: sql<boolean>`(${jobMatches.tailoredResumePdf} IS NOT NULL)`.mapWith(Boolean),
+      hasLetterDocx: sql<boolean>`(${jobMatches.tailoredLetterDocx} IS NOT NULL)`.mapWith(Boolean),
+      hasLetterPdf: sql<boolean>`(${jobMatches.tailoredLetterPdf} IS NOT NULL)`.mapWith(Boolean),
     })
     .from(jobMatches)
     .where(eq(jobMatches.id, matchId))
@@ -245,7 +255,59 @@ export async function getJobArtifacts(
       : null,
     tailoredResumeMd: row.tailoredResumeMd ?? null,
     tailoredLetterMd: row.tailoredLetterMd ?? null,
+    hasResumeDocx: Boolean(row.hasResumeDocx),
+    hasResumePdf: Boolean(row.hasResumePdf),
+    hasLetterDocx: Boolean(row.hasLetterDocx),
+    hasLetterPdf: Boolean(row.hasLetterPdf),
   };
+}
+
+export interface TailoredBinary {
+  bytes: Buffer;
+  contentType: string;
+  filename: string;
+}
+
+export async function getTailoredBinary(
+  matchId: number,
+  kind: "resume" | "letter",
+  format: "docx" | "pdf",
+): Promise<TailoredBinary | null> {
+  const db = getDb();
+  const column =
+    kind === "resume" && format === "docx"
+      ? jobMatches.tailoredResumeDocx
+      : kind === "resume" && format === "pdf"
+        ? jobMatches.tailoredResumePdf
+        : kind === "letter" && format === "docx"
+          ? jobMatches.tailoredLetterDocx
+          : jobMatches.tailoredLetterPdf;
+
+  const [row] = await db
+    .select({
+      bytes: column,
+      title: rawJobs.title,
+      companyName: companies.name,
+    })
+    .from(jobMatches)
+    .innerJoin(rawJobs, eq(jobMatches.jobId, rawJobs.id))
+    .innerJoin(companies, eq(rawJobs.companyId, companies.id))
+    .where(eq(jobMatches.id, matchId))
+    .limit(1);
+
+  if (!row || !row.bytes || row.bytes.length === 0) return null;
+
+  const slug = `${row.title} ${row.companyName}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  const filename = `${kind}-${slug}.${format}`;
+  const contentType =
+    format === "pdf"
+      ? "application/pdf"
+      : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  return { bytes: row.bytes, contentType, filename };
 }
 
 export async function markArtifactQueued(
