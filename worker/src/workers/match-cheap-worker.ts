@@ -3,7 +3,7 @@ import { connection } from "../queue/connection.js";
 import { QUEUE_NAMES, notifyQueue } from "../queue/queues.js";
 import { logger } from "../logger.js";
 import { config } from "../config.js";
-import { loadProfile, loadActiveResume } from "../db/profile.js";
+import { loadProfile, loadScorableResumes } from "../db/profile.js";
 import { fetchStage1Survivors, writeStage2Match } from "../db/matches.js";
 import { stage2HaikuBatch } from "../pipeline/stage2-haiku.js";
 import { QuotaExceededError } from "../llm/quota-guard.js";
@@ -19,22 +19,26 @@ async function runPass(): Promise<{ scored: number; notified: number; skipped: b
     return { scored: 0, notified: 0, skipped: true };
   }
 
-  const resume = await loadActiveResume();
-  if (!resume || !resume.contentMd.trim()) {
-    log.warn("no active resume — skipping Stage 2 (set one on /resumes)");
+  const resumes = await loadScorableResumes();
+  if (resumes.length === 0) {
+    log.warn("no resumes uploaded — skipping Stage 2 (upload one on /resumes)");
     return { scored: 0, notified: 0, skipped: true };
   }
 
   const survivors = await fetchStage1Survivors(profile, config.MATCH_CHEAP_MAX_PER_PASS);
   log.info(
-    { count: survivors.length, cap: config.MATCH_CHEAP_MAX_PER_PASS, resumeLabel: resume.label },
+    {
+      count: survivors.length,
+      cap: config.MATCH_CHEAP_MAX_PER_PASS,
+      resumes: resumes.map((r) => r.label),
+    },
     "stage1 survivors",
   );
   if (survivors.length === 0) return { scored: 0, notified: 0, skipped: false };
 
   let results;
   try {
-    results = await stage2HaikuBatch(survivors, resume.contentMd, profile.targetRoles);
+    results = await stage2HaikuBatch(survivors, resumes, profile.targetRoles);
   } catch (err) {
     if (err instanceof QuotaExceededError || err instanceof ClaudeRateLimitError) {
       log.warn({ err: (err as Error).message }, "llm quota/rate limit hit — pass aborted");
@@ -54,6 +58,7 @@ async function runPass(): Promise<{ scored: number; notified: number; skipped: b
       stage2Rationale: r.rationale,
       stage2Skills: r.skills,
       stage2Gaps: r.gaps,
+      bestResumeId: r.bestResumeId,
     });
 
     if (r.score >= profile.scoreThreshold) {

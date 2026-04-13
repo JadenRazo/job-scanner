@@ -3,6 +3,7 @@ import { runClaude } from "../llm/claude-cli.js";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import type { Stage1Row } from "../db/matches.js";
+import type { ScorableResume } from "../db/profile.js";
 
 const log = logger.child({ mod: "stage2" });
 
@@ -12,10 +13,14 @@ export interface CheapMatchResult {
   rationale: string;
   skills: string[];
   gaps: string[];
+  bestResumeId: number | null;
 }
 
 const MatchSchema = z.object({
   index: z.number().int().positive(),
+  // best_resume_id is nullable because a zero-score "nothing fits" is still
+  // a valid response; the model should still return an id when it can.
+  best_resume_id: z.number().int().nullable().default(null),
   score: z.number().int().min(0).max(100),
   rationale: z.string().min(1).max(400),
   matched: z.array(z.string()).max(5).default([]),
@@ -27,7 +32,7 @@ const EnvelopeSchema = z.object({
 
 const SYSTEM_RUBRIC = `You are a brutally honest job-fit scorer for a single candidate.
 
-For each job posting, score 0-100 on how realistically the candidate would land a FIRST-round interview, then explain the score in one terse line.
+The candidate may provide MULTIPLE resumes inside <resumes>, each targeting a different track (e.g. one main CV, one internship-focused, one entry-level). For each job, pick the resume that would produce the BEST interview outcome for that specific job, then score 0-100 on how realistically the candidate would land a FIRST-round interview USING THAT RESUME.
 
 Base score anchors:
   95-100  Strong direct fit. Title + stack + seniority all align.
@@ -38,15 +43,16 @@ Base score anchors:
 
 Rules:
   - Do NOT flatter. 70 is the floor for "apply".
-  - Do NOT use generic phrases ("great opportunity", "exciting role"). Be concrete about what matches and what doesn't.
-  - "matched" is up to 3 specific skills / technologies / experiences from the resume that the job asks for.
-  - "gaps" is up to 3 specific things the job asks for that the resume does NOT clearly show.
+  - Do NOT use generic phrases ("great opportunity", "exciting role"). Be concrete.
+  - "matched" is up to 3 specific skills / experiences from the WINNING resume that the job asks for.
+  - "gaps" is up to 3 specific things the job asks for that the WINNING resume does NOT clearly show.
+  - Return the id of the chosen resume in "best_resume_id" — it MUST be one of the ids listed in <resumes>.
   - If the job is clearly non-technical when the candidate is technical (or vice versa), score under 30.
   - Location/remote is NOT your concern — assume it's already filtered.
   - If a <target> block is provided, apply its biases ON TOP of the base rubric before emitting the final score.
 
 Output MUST be a single JSON object of the form:
-{"matches":[{"index":1,"score":72,"rationale":"...","matched":["..."],"gaps":["..."]}, ...]}
+{"matches":[{"index":1,"best_resume_id":10,"score":85,"rationale":"...","matched":["..."],"gaps":["..."]}, ...]}
 
 No prose, no markdown fences, no trailing text. Just the JSON.`;
 
@@ -58,7 +64,7 @@ function truncateDescription(md: string | null, maxChars = 2400): string {
 
 function buildPrompt(
   jobs: Stage1Row[],
-  resumeMd: string,
+  resumes: ScorableResume[],
   targetRoles: string,
 ): string {
   const list = jobs
@@ -69,20 +75,30 @@ function buildPrompt(
     })
     .join("\n\n---\n\n");
 
+  const resumesBlock = resumes
+    .map(
+      (r) =>
+        `<resume id="${r.id}" label="${r.label}">\n${r.contentMd.trim()}\n</resume>`,
+    )
+    .join("\n\n");
+
   const targetBlock = targetRoles.trim()
     ? `\n<target>\n${targetRoles.trim()}\n</target>\n`
     : "";
 
+  const resumeIds = resumes.map((r) => r.id).join(", ");
+
   return `${SYSTEM_RUBRIC}
 
-<resume>
-${resumeMd.trim()}
-</resume>
+<resumes>
+${resumesBlock}
+</resumes>
 ${targetBlock}
 <jobs>
 ${list}
 </jobs>
 
+Available resume ids for best_resume_id: ${resumeIds}.
 Return the JSON envelope for ${jobs.length} jobs now.`;
 }
 
@@ -102,7 +118,11 @@ function extractJson(text: string): string {
   return text.slice(open, close + 1);
 }
 
-function parseResponse(text: string, batch: Stage1Row[]): CheapMatchResult[] {
+function parseResponse(
+  text: string,
+  batch: Stage1Row[],
+  validResumeIds: Set<number>,
+): CheapMatchResult[] {
   const json = extractJson(text);
   const parsed = JSON.parse(json);
   const envelope = EnvelopeSchema.parse(parsed);
@@ -122,41 +142,54 @@ function parseResponse(text: string, batch: Stage1Row[]): CheapMatchResult[] {
         rationale: "model did not return a score for this entry",
         skills: [],
         gaps: [],
+        bestResumeId: null,
       };
     }
+    // Accept model's resume pick only if it's one of the ids we actually
+    // sent; otherwise drop to null rather than persisting a dangling FK.
+    const bestResumeId =
+      m.best_resume_id != null && validResumeIds.has(m.best_resume_id)
+        ? m.best_resume_id
+        : null;
     return {
       jobId: job.jobId,
       score: m.score,
       rationale: m.rationale.trim(),
       skills: m.matched,
       gaps: m.gaps,
+      bestResumeId,
     };
   });
 }
 
 /**
- * Batched Haiku scoring. One CLI call scores up to STAGE2_BATCH_SIZE jobs.
- * Caller is responsible for pre-filtering via Stage 1.
+ * Batched Haiku scoring. One CLI call scores up to STAGE2_BATCH_SIZE jobs
+ * against ALL provided resumes, picking the best resume per job. Caller is
+ * responsible for pre-filtering via Stage 1.
  */
 export async function stage2HaikuBatch(
   jobs: Stage1Row[],
-  resumeMd: string,
+  resumes: ScorableResume[],
   targetRoles: string = "",
 ): Promise<CheapMatchResult[]> {
   if (jobs.length === 0) return [];
-  if (!resumeMd.trim()) {
-    log.warn("empty resume — cannot score; skipping batch");
+  if (resumes.length === 0) {
+    log.warn("no resumes — cannot score; skipping batch");
     return [];
   }
 
+  const validResumeIds = new Set(resumes.map((r) => r.id));
   const batchSize = config.STAGE2_BATCH_SIZE;
   const results: CheapMatchResult[] = [];
 
   for (let i = 0; i < jobs.length; i += batchSize) {
     const batch = jobs.slice(i, i + batchSize);
-    log.info({ from: i, size: batch.length, total: jobs.length }, "stage2 batch");
+    log.info(
+      { from: i, size: batch.length, total: jobs.length, resumes: resumes.length },
+      "stage2 batch",
+    );
 
-    const prompt = buildPrompt(batch, resumeMd, targetRoles);
+    const prompt = buildPrompt(batch, resumes, targetRoles);
 
     let text: string;
     try {
@@ -184,13 +217,14 @@ export async function stage2HaikuBatch(
           rationale: `llm call failed: ${(err as Error).message.slice(0, 200)}`,
           skills: [],
           gaps: [],
+          bestResumeId: null,
         });
       }
       continue;
     }
 
     try {
-      const parsed = parseResponse(text, batch);
+      const parsed = parseResponse(text, batch, validResumeIds);
       results.push(...parsed);
     } catch (err) {
       log.error(
@@ -204,6 +238,7 @@ export async function stage2HaikuBatch(
           rationale: `parse error: ${(err as Error).message.slice(0, 200)}`,
           skills: [],
           gaps: [],
+          bestResumeId: null,
         });
       }
     }
