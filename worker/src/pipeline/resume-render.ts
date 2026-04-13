@@ -521,7 +521,11 @@ function runSoffice(args: string[], cwd: string): Promise<void> {
 }
 
 export async function docxToPdf(docxBytes: Buffer): Promise<Buffer> {
+  // Give each conversion its own LibreOffice user profile so parallel calls
+  // don't fight over /tmp/lo-profile locks. `mkdtemp` already gives us a
+  // unique base dir, so we nest a lo-profile sibling inside it.
   const dir = await mkdtemp(join(tmpdir(), "resume-"));
+  const profileDir = join(dir, "lo-profile");
   const docxPath = join(dir, "in.docx");
   const pdfPath = join(dir, "in.pdf");
   try {
@@ -532,7 +536,7 @@ export async function docxToPdf(docxBytes: Buffer): Promise<Buffer> {
         "--norestore",
         "--nologo",
         "--nofirststartwizard",
-        "-env:UserInstallation=file:///tmp/lo-profile-" + process.pid,
+        `-env:UserInstallation=file://${profileDir}`,
         "--convert-to",
         "pdf",
         "--outdir",
