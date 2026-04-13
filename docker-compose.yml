@@ -1,0 +1,92 @@
+services:
+  scanner-api:
+    build:
+      context: ./api
+    container_name: scanner-api
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 0.5
+    ports:
+      - "127.0.0.1:3200:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://jobscanner:${JOBSCANNER_DB_PASSWORD}@db:5432/jobscanner
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
+      - BETTER_AUTH_URL=${BETTER_AUTH_URL:-https://jobs.raizhost.com}
+      - BETTER_AUTH_TRUSTED_ORIGINS=${BETTER_AUTH_TRUSTED_ORIGINS:-https://jobs.raizhost.com}
+      - ADMIN_BOOTSTRAP_EMAIL=${ADMIN_BOOTSTRAP_EMAIL:-}
+      - ADMIN_BOOTSTRAP_PASSWORD=${ADMIN_BOOTSTRAP_PASSWORD:-}
+      - LETTERS_DIR=/app/data/letters
+    volumes:
+      - letters:/app/data/letters
+    networks:
+      - default
+      - raizhost
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/login"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  scanner-worker:
+    build:
+      context: ./worker
+    container_name: scanner-worker
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://jobscanner:${JOBSCANNER_DB_PASSWORD}@db:5432/jobscanner
+      - REDIS_URL=redis://scanner-redis:6379
+      # LLM via Claude Code CLI against the host's Max subscription. No API key.
+      - CHEAP_MODEL=${CHEAP_MODEL:-haiku}
+      - DEEP_MODEL=${DEEP_MODEL:-sonnet}
+      - LLM_MAX_CALLS_PER_5H=${LLM_MAX_CALLS_PER_5H:-30}
+      - LLM_JITTER_MIN_MS=${LLM_JITTER_MIN_MS:-8000}
+      - LLM_JITTER_MAX_MS=${LLM_JITTER_MAX_MS:-45000}
+      - STAGE2_BATCH_SIZE=${STAGE2_BATCH_SIZE:-15}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - DASHBOARD_BASE_URL=${BETTER_AUTH_URL:-https://jobs.raizhost.com}
+      - LETTERS_DIR=/app/data/letters
+      - "USER_AGENT=${USER_AGENT:-raizhost-job-scanner bot - jaden@raizhost.com}"
+      - TZ=America/Los_Angeles
+      - HOME=/app
+    depends_on:
+      scanner-redis:
+        condition: service_healthy
+    volumes:
+      - letters:/app/data/letters
+      # Bind-mount the host's Claude Code credentials file read-write so the
+      # CLI inside the container authenticates as Jaden's Max subscription and
+      # can refresh its OAuth tokens when they expire. The mount target must
+      # match $HOME/.claude/ inside the container.
+      - /root/.claude/.credentials.json:/app/.claude/.credentials.json:rw
+    networks:
+      - default
+      - raizhost
+
+  scanner-redis:
+    image: redis:7-alpine
+    container_name: scanner-redis
+    restart: unless-stopped
+    mem_limit: 96m
+    cpus: 0.2
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  letters:
+  redis_data:
+
+networks:
+  raizhost:
+    external: true
+    name: raizhost-app_default

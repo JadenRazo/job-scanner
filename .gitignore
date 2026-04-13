@@ -1,0 +1,20 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+dist/
+data/letters/*
+!data/letters/.gitkeep
+*.log
+.DS_Store
+# Local build / scratch artefacts
+scratch/
+*.tar
+# Next.js standalone + cache
+.next/
+api/.next/
+api/next-env.d.ts
+# Worker build output + installed browser runtimes
+worker/dist/
+worker/playwright-browsers/

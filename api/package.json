@@ -1,0 +1,42 @@
+{
+  "name": "job-scanner-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "db:push": "drizzle-kit push",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.97",
+    "better-auth": "^1.5.6",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.1",
+    "mammoth": "^1.12.0",
+    "next": "^15.3.0",
+    "pdfjs-dist": "^5.6.205",
+    "pg": "^8.13.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwind-merge": "^3.0.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "drizzle-kit": "^0.31.10",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.7.0"
+  }
+}
