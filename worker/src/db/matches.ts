@@ -121,19 +121,22 @@ export interface WriteStage2Input {
   stage2Rationale: string;
   stage2Skills: string[];
   stage2Gaps: string[];
+  bestResumeId: number | null;
 }
 
 export async function writeStage2Match(input: WriteStage2Input): Promise<number> {
   const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO job_matches (
-       job_id, stage1_pass, stage2_score, stage2_rationale, stage2_skills, stage2_gaps
-     ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+       job_id, stage1_pass, stage2_score, stage2_rationale, stage2_skills,
+       stage2_gaps, best_resume_id
+     ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
      ON CONFLICT (job_id) DO UPDATE SET
        stage1_pass      = EXCLUDED.stage1_pass,
        stage2_score     = EXCLUDED.stage2_score,
        stage2_rationale = EXCLUDED.stage2_rationale,
        stage2_skills    = EXCLUDED.stage2_skills,
        stage2_gaps      = EXCLUDED.stage2_gaps,
+       best_resume_id   = EXCLUDED.best_resume_id,
        updated_at       = NOW()
      RETURNING id`,
     [
@@ -143,6 +146,7 @@ export async function writeStage2Match(input: WriteStage2Input): Promise<number>
       input.stage2Rationale,
       JSON.stringify(input.stage2Skills),
       JSON.stringify(input.stage2Gaps),
+      input.bestResumeId,
     ],
   );
   return Number(rows[0].id);

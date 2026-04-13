@@ -1,27 +1,37 @@
 import { pool } from "./client.js";
 
-export interface ActiveResume {
+export interface ScorableResume {
   id: number;
   label: string;
   contentMd: string;
+  isActive: boolean;
 }
 
 /**
- * Load the currently-active resume from the resumes table. Returns null when
- * there is no active resume — callers must treat this as "nothing to score
- * against" and skip Stage 2.
+ * Load every resume that has non-empty content, for Stage 2 multi-resume
+ * scoring. Active resume first (breaks ties when scores are equal and is
+ * the default for Stage 3 cover letter drafting). Returns an empty array
+ * when there's nothing to score against — callers MUST skip Stage 2 in
+ * that case.
  */
-export async function loadActiveResume(): Promise<ActiveResume | null> {
+export async function loadScorableResumes(): Promise<ScorableResume[]> {
   const { rows } = await pool.query<{
     id: string;
     label: string;
     content_md: string;
+    is_active: boolean;
   }>(
-    `SELECT id, label, content_md FROM resumes WHERE is_active = TRUE LIMIT 1`,
+    `SELECT id, label, content_md, is_active
+       FROM resumes
+      WHERE length(trim(content_md)) > 0
+      ORDER BY is_active DESC, updated_at DESC`,
   );
-  if (rows.length === 0) return null;
-  const r = rows[0];
-  return { id: Number(r.id), label: r.label, contentMd: r.content_md };
+  return rows.map((r) => ({
+    id: Number(r.id),
+    label: r.label,
+    contentMd: r.content_md,
+    isActive: r.is_active,
+  }));
 }
 
 export interface Profile {
