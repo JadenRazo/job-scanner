@@ -29,7 +29,7 @@ const SYSTEM_RUBRIC = `You are a brutally honest job-fit scorer for a single can
 
 For each job posting, score 0-100 on how realistically the candidate would land a FIRST-round interview, then explain the score in one terse line.
 
-Score anchors:
+Base score anchors:
   95-100  Strong direct fit. Title + stack + seniority all align.
   80-94   Good fit with one small gap. Worth applying.
   70-79   Plausible stretch. Apply if the candidate is hungry.
@@ -43,6 +43,7 @@ Rules:
   - "gaps" is up to 3 specific things the job asks for that the resume does NOT clearly show.
   - If the job is clearly non-technical when the candidate is technical (or vice versa), score under 30.
   - Location/remote is NOT your concern — assume it's already filtered.
+  - If a <target> block is provided, apply its biases ON TOP of the base rubric before emitting the final score.
 
 Output MUST be a single JSON object of the form:
 {"matches":[{"index":1,"score":72,"rationale":"...","matched":["..."],"gaps":["..."]}, ...]}
@@ -55,7 +56,11 @@ function truncateDescription(md: string | null, maxChars = 2400): string {
   return md.slice(0, maxChars) + "\n...[truncated]";
 }
 
-function buildPrompt(jobs: Stage1Row[], resumeMd: string): string {
+function buildPrompt(
+  jobs: Stage1Row[],
+  resumeMd: string,
+  targetRoles: string,
+): string {
   const list = jobs
     .map((j, idx) => {
       const header = `## ${idx + 1}. ${j.title} — ${j.companyName}`;
@@ -64,12 +69,16 @@ function buildPrompt(jobs: Stage1Row[], resumeMd: string): string {
     })
     .join("\n\n---\n\n");
 
+  const targetBlock = targetRoles.trim()
+    ? `\n<target>\n${targetRoles.trim()}\n</target>\n`
+    : "";
+
   return `${SYSTEM_RUBRIC}
 
 <resume>
 ${resumeMd.trim()}
 </resume>
-
+${targetBlock}
 <jobs>
 ${list}
 </jobs>
@@ -132,6 +141,7 @@ function parseResponse(text: string, batch: Stage1Row[]): CheapMatchResult[] {
 export async function stage2HaikuBatch(
   jobs: Stage1Row[],
   resumeMd: string,
+  targetRoles: string = "",
 ): Promise<CheapMatchResult[]> {
   if (jobs.length === 0) return [];
   if (!resumeMd.trim()) {
@@ -146,7 +156,7 @@ export async function stage2HaikuBatch(
     const batch = jobs.slice(i, i + batchSize);
     log.info({ from: i, size: batch.length, total: jobs.length }, "stage2 batch");
 
-    const prompt = buildPrompt(batch, resumeMd);
+    const prompt = buildPrompt(batch, resumeMd, targetRoles);
 
     let text: string;
     try {
