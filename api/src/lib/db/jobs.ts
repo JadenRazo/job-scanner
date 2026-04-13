@@ -169,6 +169,114 @@ export async function listRecommendedJobs(
   return { jobs, total: countRow?.c ?? 0, scoreThreshold };
 }
 
+export type ArtifactStatus =
+  | "idle"
+  | "queued"
+  | "running"
+  | "ready"
+  | "error";
+
+export interface HiringManagerGuess {
+  title: string;
+  why: string;
+  searchQuery: string;
+  confidence: "high" | "medium" | "low";
+  linkedinSearchUrl: string;
+}
+
+export interface JobArtifacts {
+  matchId: number;
+  managersStatus: ArtifactStatus;
+  managersError: string | null;
+  managersUpdatedAt: string | null;
+  managers: {
+    guesses: HiringManagerGuess[];
+    notes: string;
+    company: string;
+    generatedAt: string;
+  } | null;
+  tailorStatus: ArtifactStatus;
+  tailorError: string | null;
+  tailorUpdatedAt: string | null;
+  tailoredResumeMd: string | null;
+  tailoredLetterMd: string | null;
+}
+
+function coerceStatus(v: string | null | undefined): ArtifactStatus {
+  if (v === "queued" || v === "running" || v === "ready" || v === "error") {
+    return v;
+  }
+  return "idle";
+}
+
+export async function getJobArtifacts(
+  matchId: number,
+): Promise<JobArtifacts | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      matchId: jobMatches.id,
+      managersStatus: jobMatches.managersStatus,
+      managersError: jobMatches.managersError,
+      managersUpdatedAt: jobMatches.managersUpdatedAt,
+      hiringManagerGuesses: jobMatches.hiringManagerGuesses,
+      tailorStatus: jobMatches.tailorStatus,
+      tailorError: jobMatches.tailorError,
+      tailorUpdatedAt: jobMatches.tailorUpdatedAt,
+      tailoredResumeMd: jobMatches.tailoredResumeMd,
+      tailoredLetterMd: jobMatches.tailoredLetterMd,
+    })
+    .from(jobMatches)
+    .where(eq(jobMatches.id, matchId))
+    .limit(1);
+  if (!row) return null;
+  return {
+    matchId: Number(row.matchId),
+    managersStatus: coerceStatus(row.managersStatus),
+    managersError: row.managersError ?? null,
+    managersUpdatedAt: row.managersUpdatedAt
+      ? row.managersUpdatedAt.toISOString()
+      : null,
+    managers: (row.hiringManagerGuesses as JobArtifacts["managers"]) ?? null,
+    tailorStatus: coerceStatus(row.tailorStatus),
+    tailorError: row.tailorError ?? null,
+    tailorUpdatedAt: row.tailorUpdatedAt
+      ? row.tailorUpdatedAt.toISOString()
+      : null,
+    tailoredResumeMd: row.tailoredResumeMd ?? null,
+    tailoredLetterMd: row.tailoredLetterMd ?? null,
+  };
+}
+
+export async function markArtifactQueued(
+  matchId: number,
+  kind: "managers" | "tailor",
+): Promise<boolean> {
+  const db = getDb();
+  if (kind === "managers") {
+    const res = await db
+      .update(jobMatches)
+      .set({
+        managersStatus: "queued",
+        managersError: null,
+        managersUpdatedAt: new Date(),
+      })
+      .where(eq(jobMatches.id, matchId))
+      .returning({ id: jobMatches.id });
+    return res.length > 0;
+  }
+  const res = await db
+    .update(jobMatches)
+    .set({
+      tailorStatus: "queued",
+      tailorError: null,
+      tailorUpdatedAt: new Date(),
+    })
+    .where(eq(jobMatches.id, matchId))
+    .returning({ id: jobMatches.id });
+  return res.length > 0;
+}
+
 export async function updateJobMatchStatus(
   matchId: number,
   status: JobStatus,

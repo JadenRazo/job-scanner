@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { JobDetails } from "./job-details";
 
 type JobStatus = "new" | "reviewed" | "applied" | "archived" | "rejected";
 type JobSort = "posted_desc" | "score_desc" | "title_asc";
@@ -317,87 +318,16 @@ export function JobsManager({ initial, initialTotal, scoreThreshold }: Props) {
                 </button>
 
                 {isOpen && (
-                  <div className="border-t border-slate-100 px-4 py-4 text-sm">
-                    {job.rationale && (
-                      <p className="mb-3 text-slate-700">{job.rationale}</p>
-                    )}
-                    {job.skills.length > 0 && (
-                      <div className="mb-2 flex flex-wrap items-center gap-1">
-                        <span className="mr-1 text-xs font-medium text-slate-500">
-                          Skills:
-                        </span>
-                        {job.skills.map((s) => (
-                          <span
-                            key={s}
-                            className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700"
-                          >
-                            {s}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {job.gaps.length > 0 && (
-                      <div className="mb-3 flex flex-wrap items-center gap-1">
-                        <span className="mr-1 text-xs font-medium text-slate-500">
-                          Gaps:
-                        </span>
-                        {job.gaps.map((g) => (
-                          <span
-                            key={g}
-                            className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700"
-                          >
-                            {g}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <a
-                        href={job.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="rounded-md border border-slate-900 bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
-                      >
-                        Open posting ↗
-                      </a>
-                      {job.status !== "applied" && (
-                        <button
-                          type="button"
-                          onClick={() => updateStatus(job.matchId, "applied")}
-                          className="rounded-md border border-emerald-600 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
-                        >
-                          Mark applied
-                        </button>
-                      )}
-                      {job.status !== "reviewed" && (
-                        <button
-                          type="button"
-                          onClick={() => updateStatus(job.matchId, "reviewed")}
-                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          Mark reviewed
-                        </button>
-                      )}
-                      {job.status !== "archived" && (
-                        <button
-                          type="button"
-                          onClick={() => updateStatus(job.matchId, "archived")}
-                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          Archive
-                        </button>
-                      )}
-                      {job.status !== "rejected" && (
-                        <button
-                          type="button"
-                          onClick={() => updateStatus(job.matchId, "rejected")}
-                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          Reject
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                  <JobDetails
+                    matchId={job.matchId}
+                    title={job.title}
+                    rationale={job.rationale}
+                    skills={job.skills}
+                    gaps={job.gaps}
+                    url={job.url}
+                    status={job.status}
+                    onStatusChange={(next) => updateStatus(job.matchId, next)}
+                  />
                 )}
               </li>
             );
