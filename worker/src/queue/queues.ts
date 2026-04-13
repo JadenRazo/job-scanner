@@ -7,6 +7,8 @@ export const QUEUE_NAMES = {
   matchDeep: "match-deep",
   renderLetter: "render-letter",
   notify: "notify",
+  artifactManagers: "artifact-managers",
+  artifactTailor: "artifact-tailor",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -58,10 +60,21 @@ export const notifyQueue = new Queue(QUEUE_NAMES.notify, {
   defaultJobOptions: notifyJobOptions,
 });
 
+export const artifactManagersQueue = new Queue(QUEUE_NAMES.artifactManagers, {
+  connection,
+  defaultJobOptions: llmJobOptions,
+});
+export const artifactTailorQueue = new Queue(QUEUE_NAMES.artifactTailor, {
+  connection,
+  defaultJobOptions: llmJobOptions,
+});
+
 export const allQueues = [
   scrapeQueue,
   matchCheapQueue,
   matchDeepQueue,
   renderLetterQueue,
   notifyQueue,
+  artifactManagersQueue,
+  artifactTailorQueue,
 ];

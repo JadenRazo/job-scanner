@@ -9,6 +9,8 @@ import { createMatchCheapWorker } from "./workers/match-cheap-worker.js";
 import { createMatchDeepWorker } from "./workers/match-deep-worker.js";
 import { createRenderLetterWorker } from "./workers/render-letter-worker.js";
 import { createNotifyWorker } from "./workers/notify-worker.js";
+import { createArtifactManagersWorker } from "./workers/artifact-managers-worker.js";
+import { createArtifactTailorWorker } from "./workers/artifact-tailor-worker.js";
 import { closePool } from "./db/client.js";
 
 async function main(): Promise<void> {
@@ -23,6 +25,8 @@ async function main(): Promise<void> {
     createMatchDeepWorker(),
     createRenderLetterWorker(),
     createNotifyWorker(),
+    createArtifactManagersWorker(),
+    createArtifactTailorWorker(),
   ];
 
   await registerRepeatables();
