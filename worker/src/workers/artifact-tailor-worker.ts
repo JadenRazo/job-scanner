@@ -129,10 +129,11 @@ Known gaps (do not paper over these): ${job.stage2Gaps.join(", ") || "none noted
       job.title,
       job.companyName,
     );
-    const [resumePdf, letterPdf] = await Promise.all([
-      docxToPdf(resumeDocx),
-      docxToPdf(letterDocx),
-    ]);
+    // soffice --headless uses shared /tmp state beyond the UserInstallation
+    // dir, so concurrent conversions intermittently fail with exit 1. Each
+    // call is 2-5s; serializing is cheap.
+    const resumePdf = await docxToPdf(resumeDocx);
+    const letterPdf = await docxToPdf(letterDocx);
     bins = { resumeDocx, resumePdf, letterDocx, letterPdf };
   } catch (err) {
     renderError = (err as Error).message ?? String(err);
