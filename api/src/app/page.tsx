@@ -16,12 +16,20 @@ export default async function HomePage() {
         Signed in as{" "}
         <span className="font-medium text-slate-900">{session.user.email}</span>
       </p>
-      <Link
-        href="/resumes"
-        className="text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-600"
-      >
-        Manage resumes &rarr;
-      </Link>
+      <div className="flex flex-col gap-2">
+        <Link
+          href="/jobs"
+          className="text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-600"
+        >
+          Recommended jobs &rarr;
+        </Link>
+        <Link
+          href="/resumes"
+          className="text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-600"
+        >
+          Manage resumes &rarr;
+        </Link>
+      </div>
       <SignOutButton />
     </main>
   );
