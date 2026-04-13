@@ -124,6 +124,33 @@ export async function markManagersStatus(
   );
 }
 
+export async function saveTailorBinaries(
+  matchId: number,
+  bins: {
+    resumeDocx: Buffer;
+    resumePdf: Buffer;
+    letterDocx: Buffer;
+    letterPdf: Buffer;
+  },
+): Promise<void> {
+  await pool.query(
+    `UPDATE job_matches
+        SET tailored_resume_docx = $1,
+            tailored_resume_pdf  = $2,
+            tailored_letter_docx = $3,
+            tailored_letter_pdf  = $4,
+            tailor_updated_at    = NOW()
+      WHERE id = $5`,
+    [
+      bins.resumeDocx,
+      bins.resumePdf,
+      bins.letterDocx,
+      bins.letterPdf,
+      matchId,
+    ],
+  );
+}
+
 export async function markTailorStatus(
   matchId: number,
   status: "queued" | "running" | "ready" | "error",

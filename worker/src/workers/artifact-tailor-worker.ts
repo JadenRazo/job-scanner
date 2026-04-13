@@ -8,9 +8,15 @@ import {
   loadJobForArtifact,
   loadResumeForArtifact,
   markTailorStatus,
+  saveTailorBinaries,
 } from "../db/artifacts.js";
 import { loadProfile } from "../db/profile.js";
 import { TAILOR_PROMPT } from "../pipeline/artifact-prompts.js";
+import {
+  docxToPdf,
+  renderLetterDocx,
+  renderResumeDocx,
+} from "../pipeline/resume-render.js";
 
 const log = logger.child({ mod: "artifact-tailor" });
 
@@ -101,12 +107,54 @@ Known gaps (do not paper over these): ${job.stage2Gaps.join(", ") || "none noted
   });
 
   const { resumeMd, letterMd } = parseResponse(res.text);
+
+  // Render ATS-friendly binaries. DOCX is produced in-process, PDF by
+  // converting the DOCX with headless LibreOffice so the text layer matches
+  // exactly. Failures here are non-fatal: we still save the markdown so the
+  // user has something, then surface the render error through tailor_error.
+  let renderError: string | null = null;
+  let bins: {
+    resumeDocx: Buffer;
+    resumePdf: Buffer;
+    letterDocx: Buffer;
+    letterPdf: Buffer;
+  } | null = null;
+  try {
+    const applicantName = profile.fullName ?? "Applicant";
+    const resumeDocx = await renderResumeDocx(resumeMd, applicantName);
+    const letterDocx = await renderLetterDocx(
+      letterMd,
+      applicantName,
+      profile.contactEmail,
+      job.title,
+      job.companyName,
+    );
+    const [resumePdf, letterPdf] = await Promise.all([
+      docxToPdf(resumeDocx),
+      docxToPdf(letterDocx),
+    ]);
+    bins = { resumeDocx, resumePdf, letterDocx, letterPdf };
+  } catch (err) {
+    renderError = (err as Error).message ?? String(err);
+    log.error({ matchId, err: renderError }, "render failed");
+  }
+
   await markTailorStatus(matchId, "ready", { resumeMd, letterMd });
+  if (bins) {
+    await saveTailorBinaries(matchId, bins);
+  } else if (renderError) {
+    // Mark status ready (markdown is usable) but surface the render problem.
+    await markTailorStatus(matchId, "ready", {
+      error: `Markdown ready; DOCX/PDF render failed: ${renderError.slice(0, 400)}`,
+    });
+  }
+
   log.info(
     {
       matchId,
       resumeChars: resumeMd.length,
       letterChars: letterMd.length,
+      rendered: Boolean(bins),
       costUsd: res.totalCostUsd,
     },
     "tailor ready",

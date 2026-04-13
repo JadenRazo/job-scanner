@@ -29,6 +29,10 @@ interface JobArtifacts {
   tailorUpdatedAt: string | null;
   tailoredResumeMd: string | null;
   tailoredLetterMd: string | null;
+  hasResumeDocx: boolean;
+  hasResumePdf: boolean;
+  hasLetterDocx: boolean;
+  hasLetterPdf: boolean;
 }
 
 interface ApiOk<T> {
@@ -95,16 +99,41 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
-function download(filename: string, text: string) {
-  const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+function DownloadButton({
+  matchId,
+  kind,
+  format,
+  ready,
+}: {
+  matchId: number;
+  kind: "resume" | "letter";
+  format: "docx" | "pdf";
+  ready: boolean;
+}) {
+  const label = format.toUpperCase();
+  const className = cn(
+    "rounded-md border px-2.5 py-1 text-xs font-medium transition",
+    ready
+      ? format === "pdf"
+        ? "border-rose-600 bg-white text-rose-700 hover:bg-rose-50"
+        : "border-sky-600 bg-white text-sky-700 hover:bg-sky-50"
+      : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+  );
+  if (!ready) {
+    return (
+      <span className={className} title="Still rendering — retry in a few seconds">
+        {label} (pending)
+      </span>
+    );
+  }
+  return (
+    <a
+      href={`/api/jobs/${matchId}/download/${kind}/${format}`}
+      className={className}
+    >
+      {label} ↓
+    </a>
+  );
 }
 
 export function JobDetails({
@@ -469,7 +498,6 @@ function ManagersTab({
 }
 
 function TailorTab({
-  title,
   artifacts,
   onGenerate,
   onRegenerate,
@@ -482,19 +510,27 @@ function TailorTab({
   if (!artifacts) {
     return <p className="text-xs text-slate-500">Loading…</p>;
   }
-  const { tailorStatus, tailorError, tailoredResumeMd, tailoredLetterMd } =
-    artifacts;
+  const {
+    matchId,
+    tailorStatus,
+    tailorError,
+    tailoredResumeMd,
+    tailoredLetterMd,
+    hasResumeDocx,
+    hasResumePdf,
+    hasLetterDocx,
+    hasLetterPdf,
+  } = artifacts;
   const busy = tailorStatus === "queued" || tailorStatus === "running";
   const hasContent = Boolean(tailoredResumeMd && tailoredLetterMd);
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
 
   if (tailorStatus === "idle" && !hasContent) {
     return (
       <div>
         <p className="mb-3 text-slate-600">
-          Generate a resume and cover letter tailored to this posting using
-          your active resume and profile. Output is written to read as human,
-          not as AI.
+          Generate an ATS-friendly resume and cover letter tailored to this
+          posting using your active resume and profile. Output is written to
+          read as human, not as AI, and exports to DOCX or PDF.
         </p>
         <button
           type="button"
@@ -520,15 +556,18 @@ function TailorTab({
               </h3>
               <div className="flex gap-1.5">
                 <CopyButton text={tailoredResumeMd ?? ""} label="Copy" />
-                <button
-                  type="button"
-                  onClick={() =>
-                    download(`resume-${slug}.md`, tailoredResumeMd ?? "")
-                  }
-                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Download .md
-                </button>
+                <DownloadButton
+                  matchId={matchId}
+                  kind="resume"
+                  format="docx"
+                  ready={hasResumeDocx}
+                />
+                <DownloadButton
+                  matchId={matchId}
+                  kind="resume"
+                  format="pdf"
+                  ready={hasResumePdf}
+                />
               </div>
             </header>
             <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap px-3 py-3 font-mono text-[11.5px] leading-relaxed text-slate-800">
@@ -543,15 +582,18 @@ function TailorTab({
               </h3>
               <div className="flex gap-1.5">
                 <CopyButton text={tailoredLetterMd ?? ""} label="Copy" />
-                <button
-                  type="button"
-                  onClick={() =>
-                    download(`letter-${slug}.md`, tailoredLetterMd ?? "")
-                  }
-                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Download .md
-                </button>
+                <DownloadButton
+                  matchId={matchId}
+                  kind="letter"
+                  format="docx"
+                  ready={hasLetterDocx}
+                />
+                <DownloadButton
+                  matchId={matchId}
+                  kind="letter"
+                  format="pdf"
+                  ready={hasLetterPdf}
+                />
               </div>
             </header>
             <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap px-3 py-3 font-serif text-[13px] leading-relaxed text-slate-800">
