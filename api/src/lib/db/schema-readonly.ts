@@ -71,6 +71,7 @@ export const profile = pgTable("profile", {
   resumePdfPath: text("resume_pdf_path"),
   titleAllow: text("title_allow").array().notNull().default(sql`'{}'::text[]`),
   titleDeny: text("title_deny").array().notNull().default(sql`'{}'::text[]`),
+  titleBoost: text("title_boost").array().notNull().default(sql`'{}'::text[]`),
   seniorityAllow: text("seniority_allow")
     .array()
     .notNull()
@@ -99,12 +100,14 @@ export const companies = pgTable(
     slug: text("slug").notNull(),
     workdaySite: text("workday_site"),
     enabled: boolean("enabled").notNull().default(true),
+    tier: smallint("tier").notNull().default(3),
     lastScannedAt: timestamp("last_scanned_at", { withTimezone: true, mode: "date" }),
     createdAt: nowTz("created_at"),
   },
   (t) => [
     uniqueIndex("companies_ats_slug_key").on(t.ats, t.slug),
     index("companies_enabled_idx").on(t.enabled),
+    index("companies_tier_enabled_idx").on(t.tier, t.enabled),
   ],
 );
 
@@ -149,6 +152,8 @@ export const rawJobs = pgTable(
     url: text("url").notNull(),
     descriptionMd: text("description_md"),
     rawJson: jsonb("raw_json"),
+    country: text("country"),
+    sourceCompanyName: text("source_company_name"),
     firstSeenAt: nowTz("first_seen_at"),
     lastSeenAt: nowTz("last_seen_at"),
   },
@@ -156,6 +161,7 @@ export const rawJobs = pgTable(
     uniqueIndex("raw_jobs_ats_external_id_key").on(t.ats, t.externalId),
     index("raw_jobs_company_idx").on(t.companyId),
     index("raw_jobs_posted_idx").on(t.postedAt),
+    index("raw_jobs_country_idx").on(t.country),
   ],
 );
 

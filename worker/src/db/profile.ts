@@ -40,6 +40,8 @@ export interface Profile {
   resumeMd: string;
   titleAllow: string[];
   titleDeny: string[];
+  /** Stage-1 ORDER BY boost: titles containing one of these bubble up. */
+  titleBoost: string[];
   seniorityAllow: string[];
   locationsAllow: string[];
   remoteOnly: boolean;
@@ -56,6 +58,7 @@ interface ProfileRow {
   resume_md: string;
   title_allow: string[];
   title_deny: string[];
+  title_boost: string[] | null;
   seniority_allow: string[];
   locations_allow: string[];
   remote_only: boolean;
@@ -68,8 +71,8 @@ interface ProfileRow {
 export async function loadProfile(): Promise<Profile> {
   const { rows } = await pool.query<ProfileRow>(
     `SELECT full_name, contact_email, resume_md, title_allow, title_deny,
-            seniority_allow, locations_allow, remote_only, score_threshold,
-            paused, discord_webhook, target_roles
+            title_boost, seniority_allow, locations_allow, remote_only,
+            score_threshold, paused, discord_webhook, target_roles
        FROM profile WHERE id = 1`,
   );
   if (rows.length === 0) throw new Error("profile row missing — db/schema.sql not applied?");
@@ -80,6 +83,7 @@ export async function loadProfile(): Promise<Profile> {
     resumeMd: r.resume_md,
     titleAllow: r.title_allow,
     titleDeny: r.title_deny,
+    titleBoost: r.title_boost ?? [],
     seniorityAllow: r.seniority_allow,
     locationsAllow: r.locations_allow,
     remoteOnly: r.remote_only,

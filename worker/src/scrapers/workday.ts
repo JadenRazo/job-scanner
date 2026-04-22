@@ -22,7 +22,7 @@ interface WorkdayResponse {
 type Pod = "wd5" | "wd1";
 
 const PAGE_SIZE = 20;
-const MAX_OFFSET = 400;
+const MAX_OFFSET = 5000;
 
 function detectRemote(locationName: string | null | undefined): boolean | null {
   if (!locationName) return null;
