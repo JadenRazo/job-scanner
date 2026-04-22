@@ -89,6 +89,12 @@ export async function listRecommendedJobs(
   const conditions = [
     gte(jobMatches.stage2Score, minScore),
     inArray(jobMatches.status, statuses),
+    // Defense in depth: the dashboard is US/CA-only. Show rows whose country
+    // is US, CA, or REMOTE; also keep rows where the country couldn't be
+    // derived heuristically (null) so we don't lose ambiguous US-company
+    // postings like "In-Office" or "4 Locations" — those are almost always
+    // US-based employers. Explicitly-foreign rows (UK/DE/IN/etc.) are hidden.
+    sql`(${rawJobs.country} IN ('US','CA','REMOTE') OR ${rawJobs.country} IS NULL)`,
   ];
   if (input.q && input.q.trim().length > 0) {
     conditions.push(ilike(rawJobs.title, `%${input.q.trim()}%`));
