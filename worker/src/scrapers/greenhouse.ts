@@ -84,7 +84,25 @@ export const greenhouseScraper: Scraper = async ({ company, userAgent }) => {
   }
 
   const jobs: ScrapedJob[] = data.jobs.map((j) => {
-    const locationName = j.location?.name ?? null;
+    // Prefer a specific offices entry over the vague top-level `location.name`
+    // which many Greenhouse employers fill with "In-Office" / "On-site" /
+    // "Remote" while the actual city lives in `offices[]`. If multiple offices
+    // are listed we join them so the deriveCountry heuristic has every hint.
+    const officeLocs = (j.offices ?? [])
+      .map((o) => o.location ?? o.name)
+      .filter((s): s is string => typeof s === "string" && s.trim().length > 0);
+    const rawLocation = j.location?.name ?? null;
+    const locationName = (() => {
+      if (officeLocs.length > 0) {
+        // When the top-level location is a vague string, use offices only.
+        // When it's something more specific ("San Francisco"), prepend it.
+        const vague = !rawLocation || /^(in[-\s]?office|on[-\s]?site|remote|hybrid|multiple locations|\d+ locations?)$/i.test(rawLocation.trim());
+        return vague
+          ? officeLocs.join(" | ")
+          : `${rawLocation} | ${officeLocs.join(" | ")}`;
+      }
+      return rawLocation;
+    })();
     return {
       ats: "greenhouse",
       externalId: String(j.id),
