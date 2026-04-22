@@ -10,9 +10,11 @@ export interface Stage1Row {
   title: string;
   location: string | null;
   remote: boolean | null;
+  country: string | null;
   url: string;
   descriptionMd: string | null;
   postedAt: Date | null;
+  tier: number;
 }
 
 /**
@@ -24,10 +26,14 @@ export interface Stage1Row {
  *   - posted_at >= NOW() - 60 days (or NULL posted_at accepted)
  *   - title_allow empty OR title ILIKE ANY of allow
  *   - title_deny empty OR title !ILIKE ANY of deny
+ *   - country IN (US, CA, REMOTE) OR (country IS NULL AND remote = TRUE)
+ *   - locations_allow empty OR location ILIKE ANY of allow (legacy knob)
  *   - remote_only=false OR (remote=true OR location ILIKE '%remote%')
- *   - locations_allow empty OR location ILIKE ANY of allow
  *
- * Sort: newest first so the freshest JDs get scored even when a cap is applied.
+ * Sort: rows matching title_boost (jr/intern/new-grad) surface first;
+ *       then remote (true first) because user prefers remote;
+ *       then tier ascending (1 is best);
+ *       then newest first.
  */
 export async function fetchStage1Survivors(
   profile: Profile,
@@ -42,14 +48,17 @@ export async function fetchStage1Survivors(
       r.title           AS title,
       r.location        AS location,
       r.remote          AS remote,
+      r.country         AS country,
       r.url             AS url,
       r.description_md  AS description_md,
-      r.posted_at       AS posted_at
+      r.posted_at       AS posted_at,
+      c.tier            AS tier
     FROM raw_jobs r
     JOIN companies c ON c.id = r.company_id
     LEFT JOIN job_matches m ON m.job_id = r.id
     WHERE m.id IS NULL
       AND (r.posted_at IS NULL OR r.posted_at >= NOW() - interval '60 days')
+      -- title_allow: pass if empty OR any substring hit
       AND (
         cardinality($1::text[]) = 0
         OR EXISTS (
@@ -57,16 +66,19 @@ export async function fetchStage1Survivors(
            WHERE r.title ILIKE '%' || a || '%'
         )
       )
+      -- title_deny: exclude if ANY deny term appears in title
       AND NOT EXISTS (
         SELECT 1 FROM unnest($2::text[]) AS d
          WHERE cardinality($2::text[]) > 0
            AND r.title ILIKE '%' || d || '%'
       )
+      -- remote_only legacy knob
       AND (
         $3::boolean = FALSE
         OR COALESCE(r.remote, FALSE) = TRUE
         OR r.location ILIKE '%remote%'
       )
+      -- locations_allow legacy knob (empty disables it)
       AND (
         cardinality($4::text[]) = 0
         OR r.location IS NULL
@@ -75,8 +87,25 @@ export async function fetchStage1Survivors(
            WHERE r.location ILIKE '%' || l || '%'
         )
       )
-    ORDER BY COALESCE(r.posted_at, r.first_seen_at) DESC NULLS LAST
-    LIMIT $5
+      -- Geographic scope: US / CA only (REMOTE allowed regardless)
+      AND (
+        r.country IN ('US','CA','REMOTE')
+        OR (r.country IS NULL AND COALESCE(r.remote, FALSE) = TRUE)
+        OR (r.country IS NULL AND r.location IS NULL)
+      )
+    ORDER BY
+      -- Stage-1 priority: jr/intern/new-grad titles first (title_boost hit),
+      -- then remote roles, then lower-tier (better) employers, then freshness.
+      (
+        CASE WHEN cardinality($5::text[]) > 0 AND EXISTS (
+          SELECT 1 FROM unnest($5::text[]) AS b
+           WHERE r.title ILIKE '%' || b || '%'
+        ) THEN 1 ELSE 0 END
+      ) DESC,
+      (CASE WHEN COALESCE(r.remote, FALSE) OR r.country = 'REMOTE' THEN 1 ELSE 0 END) DESC,
+      c.tier ASC,
+      COALESCE(r.posted_at, r.first_seen_at) DESC NULLS LAST
+    LIMIT $6
   `;
 
   interface Row {
@@ -87,9 +116,11 @@ export async function fetchStage1Survivors(
     title: string;
     location: string | null;
     remote: boolean | null;
+    country: string | null;
     url: string;
     description_md: string | null;
     posted_at: Date | null;
+    tier: number;
   }
 
   const { rows } = await pool.query<Row>(sql, [
@@ -97,6 +128,7 @@ export async function fetchStage1Survivors(
     profile.titleDeny,
     profile.remoteOnly,
     profile.locationsAllow,
+    profile.titleBoost,
     limit,
   ]);
 
@@ -108,9 +140,11 @@ export async function fetchStage1Survivors(
     title: r.title,
     location: r.location,
     remote: r.remote,
+    country: r.country,
     url: r.url,
     descriptionMd: r.description_md,
     postedAt: r.posted_at,
+    tier: r.tier ?? 3,
   }));
 }
 

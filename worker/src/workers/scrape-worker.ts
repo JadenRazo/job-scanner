@@ -3,10 +3,15 @@ import { connection } from "../queue/connection.js";
 import { QUEUE_NAMES, matchCheapQueue } from "../queue/queues.js";
 import { logger } from "../logger.js";
 import { config } from "../config.js";
-import { listEnabledCompanies, markScanned } from "../db/companies.js";
+import {
+  listEnabledCompanies,
+  listEnabledCompaniesByTiers,
+  markScanned,
+} from "../db/companies.js";
 import { ingestJobs } from "../db/ingest.js";
 import { startScrapeRun, finishScrapeRun } from "../db/runs.js";
 import { scraperFor } from "../scrapers/index.js";
+import type { Company } from "../scrapers/types.js";
 
 const log = logger.child({ mod: "scrape-worker" });
 
@@ -38,7 +43,7 @@ async function runOneCompany(companyId: number): Promise<void> {
     ok = true;
 
     log.info(
-      { company: company.name, ats: company.ats, found, newCount, updated: counts.updated },
+      { company: company.name, ats: company.ats, tier: company.tier, found, newCount, updated: counts.updated },
       "company scraped",
     );
   } catch (err) {
@@ -49,9 +54,11 @@ async function runOneCompany(companyId: number): Promise<void> {
   }
 }
 
-async function runAll(): Promise<{ companies: number; totalFound: number; totalNew: number }> {
-  const companies = await listEnabledCompanies();
-  log.info({ count: companies.length }, "scrape-all starting");
+async function runCompanies(
+  companies: Company[],
+  label: string,
+): Promise<{ companies: number; totalFound: number; totalNew: number }> {
+  log.info({ count: companies.length, label }, "scrape-batch starting");
 
   let totalFound = 0;
   let totalNew = 0;
@@ -74,12 +81,12 @@ async function runAll(): Promise<{ companies: number; totalFound: number; totalN
       await markScanned(c.id);
       ok = true;
       log.info(
-        { company: c.name, ats: c.ats, found, newCount, updated: counts.updated },
+        { company: c.name, ats: c.ats, tier: c.tier, found, newCount, updated: counts.updated },
         "company scraped",
       );
     } catch (err) {
       error = (err as Error).message ?? String(err);
-      log.error({ company: c.name, err: error }, "company scrape failed");
+      log.error({ company: c.name, ats: c.ats, tier: c.tier, err: error }, "company scrape failed");
     } finally {
       await finishScrapeRun(runId, { ok, error, found, newCount });
     }
@@ -87,7 +94,7 @@ async function runAll(): Promise<{ companies: number; totalFound: number; totalN
     await politeDelay();
   }
 
-  log.info({ companies: companies.length, totalFound, totalNew }, "scrape-all done");
+  log.info({ companies: companies.length, totalFound, totalNew, label }, "scrape-batch done");
   return { companies: companies.length, totalFound, totalNew };
 }
 
@@ -97,14 +104,33 @@ export function createScrapeWorker(): Worker {
     async (job) => {
       log.info({ id: job.id, name: job.name, data: job.data }, "scrape job");
 
+      // Manual full-roster run (CLI or admin UI trigger).
       if (job.name === "scrape-all") {
-        const result = await runAll();
-        // Auto-chain: kick off a cheap match pass if we got new jobs, OR
-        // even when we didn't (the scheduler is the main throttle; a run
-        // with 0 new and empty job_matches history still wants to score).
+        const companies = await listEnabledCompanies();
+        const result = await runCompanies(companies, "all");
         await matchCheapQueue.add(
           "stage2-pass",
-          { trigger: "post-scrape", totalNew: result.totalNew },
+          { trigger: "post-scrape-all", totalNew: result.totalNew },
+          { removeOnComplete: { age: 3600, count: 100 } },
+        );
+        return result;
+      }
+
+      // Tier-scoped scheduled run.
+      if (job.name === "scrape-tiers") {
+        const data = job.data as { tiers?: number[]; label?: string };
+        const tiers = Array.isArray(data?.tiers) ? data.tiers : [];
+        if (tiers.length === 0) throw new Error("scrape-tiers missing tiers");
+
+        const companies = await listEnabledCompaniesByTiers(tiers);
+        const result = await runCompanies(companies, data.label ?? `tiers:${tiers.join(",")}`);
+
+        // Kick a Stage-2 pass. Stage-1 ordering already prioritizes
+        // title_boost + remote + low-tier, so the quota-limited scorer
+        // naturally works through the best jobs first.
+        await matchCheapQueue.add(
+          "stage2-pass",
+          { trigger: `post-scrape-tiers-${tiers.join(",")}`, totalNew: result.totalNew },
           { removeOnComplete: { age: 3600, count: 100 } },
         );
         return result;
