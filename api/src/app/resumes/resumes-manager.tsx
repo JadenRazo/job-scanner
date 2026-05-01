@@ -36,6 +36,20 @@ interface ApiErr {
 }
 type ApiEnvelope<T> = ApiOk<T> | ApiErr;
 
+async function parseJsonOrThrow<T>(res: Response): Promise<T> {
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) {
+    const text = await res.text().catch(() => "");
+    const snippet = text.slice(0, 200).replace(/\s+/g, " ").trim();
+    throw new Error(
+      `Server returned ${res.status} ${res.statusText} (non-JSON: ${ct || "unknown"})${snippet ? ` — ${snippet}` : ""}`,
+    );
+  }
+  const body = (await res.json()) as ApiEnvelope<T>;
+  if (!body.success) throw new Error(body.error);
+  return body.data;
+}
+
 async function apiFetch<T>(
   url: string,
   init?: RequestInit,
@@ -48,9 +62,7 @@ async function apiFetch<T>(
       ...(init?.headers ?? {}),
     },
   });
-  const body = (await res.json()) as ApiEnvelope<T>;
-  if (!body.success) throw new Error(body.error);
-  return body.data;
+  return parseJsonOrThrow<T>(res);
 }
 
 async function apiUpload<T>(url: string, form: FormData): Promise<T> {
@@ -61,9 +73,7 @@ async function apiUpload<T>(url: string, form: FormData): Promise<T> {
     credentials: "same-origin",
     body: form,
   });
-  const body = (await res.json()) as ApiEnvelope<T>;
-  if (!body.success) throw new Error(body.error);
-  return body.data;
+  return parseJsonOrThrow<T>(res);
 }
 
 function timeAgo(iso: string): string {
