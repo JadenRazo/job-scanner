@@ -34,6 +34,15 @@ export async function middleware(request: NextRequest) {
 
   const session = await validateSession(request);
   if (!session) {
+    // API routes get JSON 401 — redirecting them to /login returns HTML
+    // that breaks the client's `await res.json()` parse with the
+    // "Unexpected token '<', '<!DOCTYPE'" error.
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { success: false, error: "Authentication required" },
+        { status: 401 },
+      );
+    }
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
