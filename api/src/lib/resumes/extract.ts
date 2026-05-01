@@ -1,14 +1,11 @@
 // Resume text extraction for uploaded files.
 //
-// Supports PDF (via pdfjs-dist legacy build), DOCX (via mammoth), and plain
-// text / markdown. Returns cleaned plain text preserving paragraph breaks.
-//
-// IMPORTANT: pdfjs-dist must be imported from the "legacy" build — the default
-// build depends on DOM globals that don't exist in Node.
+// Supports PDF (via unpdf — a serverless-friendly pdfjs wrapper that does
+// not depend on @napi-rs/canvas, DOM polyfills, or a worker file in the
+// Next standalone trace), DOCX (via mammoth), and plain text / markdown.
+// Returns cleaned plain text preserving paragraph breaks.
 
 import mammoth from "mammoth";
-// pdfjs-dist legacy build ships as an ESM module. We import it dynamically
-// inside the handler to avoid any module-load side effects at boot.
 
 export interface ExtractResult {
   text: string;
@@ -39,45 +36,9 @@ function cleanText(raw: string): string {
 }
 
 async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
-  const warnings: string[] = [];
-  // pdfjs-dist tries to polyfill DOMMatrix/Path2D/ImageData from
-  // @napi-rs/canvas in Node. Its internal `require("@napi-rs/canvas")` is
-  // dynamic and invisible to Next's file tracer — import it explicitly here
-  // so the package is included in the standalone bundle and becomes
-  // resolvable from pdfjs's location. Also stamp globalThis ourselves as a
-  // belt-and-braces fallback in case pdfjs's require resolution fails in
-  // the traced layout.
-  try {
-    const canvas = (await import("@napi-rs/canvas")) as unknown as {
-      DOMMatrix?: typeof DOMMatrix;
-      ImageData?: typeof ImageData;
-      Path2D?: typeof Path2D;
-    };
-    const g = globalThis as Record<string, unknown>;
-    if (!g.DOMMatrix && canvas.DOMMatrix) g.DOMMatrix = canvas.DOMMatrix;
-    if (!g.ImageData && canvas.ImageData) g.ImageData = canvas.ImageData;
-    if (!g.Path2D && canvas.Path2D) g.Path2D = canvas.Path2D;
-  } catch {
-    // If canvas isn't available, pdfjs will emit warnings and may still work
-    // for pure text extraction on simple PDFs.
-  }
-
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  // Force-include the worker in the Next file trace. We don't actually spawn
-  // a Worker thread — we hand pdfjs the module's URL via workerSrc so its
-  // fake-worker loader can resolve it in the traced standalone bundle.
-  await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
-  try {
-    const workerUrl = await import.meta.resolve?.(
-      "pdfjs-dist/legacy/build/pdf.worker.mjs",
-    );
-    if (workerUrl && pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-    }
-  } catch {
-    // resolve() may not be available on all runtimes; pdfjs will fall back
-    // to its default relative path which is also now in the trace.
-  }
+  // unpdf bundles a serverless-built pdfjs internally — no canvas peer dep
+  // is exercised by extractText, no worker file to register, no DOM polyfills.
+  const { extractText, getDocumentProxy } = await import("unpdf");
 
   const data = new Uint8Array(
     buffer.buffer,
@@ -85,51 +46,23 @@ async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
     buffer.byteLength,
   );
 
-  let doc;
+  let pdf;
   try {
-    doc = await pdfjs.getDocument({
-      data,
-      useSystemFonts: true,
-      isEvalSupported: false,
-      disableFontFace: true,
-    }).promise;
+    pdf = await getDocumentProxy(data);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`failed to parse PDF: ${msg}`);
   }
 
-  const pageTexts: string[] = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    // content.items is TextItem[] with a `str` field. Join with spaces and
-    // break lines when the y-position changes (approximation: rely on
-    // `hasEOL` where available).
-    const parts: string[] = [];
-    let prevY: number | null = null;
-    for (const item of content.items as Array<{
-      str: string;
-      hasEOL?: boolean;
-      transform?: number[];
-    }>) {
-      const y = item.transform ? item.transform[5] : null;
-      if (prevY !== null && y !== null && Math.abs(y - prevY) > 2) {
-        parts.push("\n");
-      }
-      parts.push(item.str);
-      if (item.hasEOL) parts.push("\n");
-      if (y !== null) prevY = y;
-    }
-    pageTexts.push(parts.join(" "));
-  }
-
-  const text = cleanText(pageTexts.join("\n\n"));
-  if (text.length === 0) {
+  const { text } = await extractText(pdf, { mergePages: true });
+  const merged = Array.isArray(text) ? text.join("\n\n") : text;
+  const cleaned = cleanText(merged);
+  if (cleaned.length === 0) {
     throw new Error(
       "PDF contained no extractable text (likely a scanned image — try a text-based PDF or paste the content manually)",
     );
   }
-  return { text, warnings };
+  return { text: cleaned, warnings: [] };
 }
 
 async function extractDocx(buffer: Buffer): Promise<ExtractResult> {

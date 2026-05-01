@@ -48,13 +48,10 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const arrayBuf = await fileField.arrayBuffer();
-  // IMPORTANT: pdfjs-dist detaches the underlying ArrayBuffer of any Uint8Array
-  // passed to getDocument(). We need to keep an untouched copy for storage, so
-  // pass a fresh copy to the extractor and keep the original for the DB write.
+  // pdfjs (used internally by unpdf) detaches the backing ArrayBuffer of the
+  // Uint8Array it receives. Keep a separate copy for the DB write so the
+  // stored bytes don't end up zero-length after extraction.
   const storedBuffer = Buffer.from(arrayBuf);
-  // Pass a separate copy to extractResumeText — pdfjs-dist detaches the
-  // underlying ArrayBuffer of the Uint8Array it receives, which would leave
-  // `storedBuffer` zero-length before we get a chance to persist it.
   const extractInput = Buffer.from(storedBuffer);
   const mime = fileField.type || "application/octet-stream";
   const filename = fileField.name || "upload";

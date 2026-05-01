@@ -6,8 +6,7 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname, "./"),
   serverExternalPackages: [
     "pg",
-    "pdfjs-dist",
-    "@napi-rs/canvas",
+    "unpdf",
     "mammoth",
   ],
 };
