@@ -16,7 +16,7 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
-    "better-auth": "^1.6.10",
+    "better-auth": "^1.6.11",
     "bullmq": "^5.73.5",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.1",
