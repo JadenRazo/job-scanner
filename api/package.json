@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.22.3"
   },
   "scripts": {
     "dev": "next dev",
@@ -17,27 +17,27 @@
   },
   "dependencies": {
     "better-auth": "^1.6.11",
-    "bullmq": "^5.73.5",
+    "bullmq": "^5.76.8",
     "clsx": "^2.1.1",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "ioredis": "^5.10.1",
     "mammoth": "^1.12.0",
     "next": "^15.5.18",
-    "pg": "^8.13.0",
+    "pg": "^8.20.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "tailwind-merge": "^3.0.0",
+    "tailwind-merge": "^3.6.0",
     "unpdf": "^1.6.2",
-    "zod": "^3.24.0"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",
-    "@types/node": "^22.10.0",
-    "@types/pg": "^8.11.0",
+    "@types/node": "^22.19.19",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "drizzle-kit": "^0.31.10",
     "tailwindcss": "^4.1.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.9.3"
   }
 }
