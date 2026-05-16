@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.24
 
 # ---------- builder ----------
-FROM node:22.22.2-slim AS builder
+FROM node:22.22.3-slim AS builder
 WORKDIR /app
 
 COPY package.json ./
@@ -17,7 +17,7 @@ COPY assets ./assets
 RUN npm run build
 
 # ---------- runtime ----------
-FROM node:22.22.2-slim AS runtime
+FROM node:22.22.3-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
 
