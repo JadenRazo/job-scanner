@@ -68,7 +68,7 @@ services:
       - raizhost
 
   scanner-redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: scanner-redis
     restart: unless-stopped
     mem_limit: 96m
